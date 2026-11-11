@@ -1,0 +1,73 @@
+name: backtest
+
+# 코드가 바뀌면 자동으로, 또는 Actions 탭의 "Run workflow" 버튼으로 실행된다.
+# 테스트 -> 백테스트 -> 결과(results/, data/)를 저장소에 커밋.
+on:
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: "가격 데이터를 새로 내려받기"
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "quant/**"
+      - "tests/**"
+      - "configs/**"
+      - "run_backtest.py"
+      - "requirements.txt"
+      - ".github/workflows/backtest.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backtest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: 단위 테스트
+        run: python -m pytest -q
+
+      - name: 백테스트 실행
+        env:
+          REFRESH: ${{ inputs.refresh }}
+        run: |
+          flag=""
+          if [ "$REFRESH" = "true" ]; then flag="--refresh"; fi
+          status=0
+          for config in configs/*.json; do
+            echo "::group::$config"
+            python run_backtest.py --config "$config" $flag || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: 결과를 저장소에 커밋
+        if: always()
+        run: |
+          mkdir -p data results
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data results
+          if git diff --cached --quiet; then
+            echo "바뀐 결과가 없습니다."
+            exit 0
+          fi
+          git commit -m "Update backtest results [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
