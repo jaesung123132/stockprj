@@ -32,10 +32,9 @@ class Entry:
 
 
 def build_entries(prices: pd.DataFrame, index_prices: pd.DataFrame,
-                  index_label: str) -> list[Entry]:
+                  benchmark: dict) -> list[Entry]:
     """전략 3개(앞)와 비교 기준 2개(뒤)."""
     top_n = max(1, round(prices.shape[1] / 3))  # 상위 1/3 종목에 집중
-    index_ticker = index_prices.columns[0]
     return [
         Entry("trend", "추세추종", "Trend following (10-month SMA)", prices,
               st.trend_following(prices), "#2a78d6"),
@@ -45,7 +44,7 @@ def build_entries(prices: pd.DataFrame, index_prices: pd.DataFrame,
               st.mean_reversion(prices, max_weight=1 / top_n), "#1baf7a"),
         Entry("equal", "동일비중 보유", "Equal-weight buy & hold", prices,
               st.equal_weight_buy_and_hold(prices), "#52514e", "-", 1.2),
-        Entry("index", index_label, f"{index_ticker} buy & hold", index_prices,
+        Entry("index", benchmark["label"], benchmark["chart_label"], index_prices,
               st.buy_and_hold(index_prices), "#898781", "--", 1.2),
     ]
 
@@ -78,9 +77,9 @@ def main() -> None:
 
     raw = load_prices(tickers + [index_ticker], config["start"],
                       Path(args.data_dir) / f"{config['name']}.csv", refresh=args.refresh)
-    all_prices, warnings = clean_prices(raw)
+    all_prices, notes = clean_prices(raw)
     prices, index_prices = all_prices[tickers], all_prices[[index_ticker]]
-    entries = build_entries(prices, index_prices, config["benchmark"]["label"])
+    entries = build_entries(prices, index_prices, config["benchmark"])
 
     # 모든 전략이 신호를 낼 수 있게 된 다음 날부터 평가한다 (모멘텀이 가장 긴 준비 기간을 쓴다).
     first_signal = entries[1].targets.index[0]
@@ -97,7 +96,7 @@ def main() -> None:
     rp.plot_equity(entries, base, out_dir / "equity.png", f"{config['chart_title']}: growth of 1")
     rp.plot_drawdowns(entries, base, out_dir / "drawdown.png",
                       f"{config['chart_title']}: drawdown from previous peak")
-    report = rp.build_report(config, entries, base, sensitivity, cost_bps, latest_targets, warnings)
+    report = rp.build_report(config, entries, base, sensitivity, cost_bps, latest_targets, notes)
     (out_dir / "report.md").write_text(report, encoding="utf-8")
     pd.DataFrame({entry.key: base[entry.key][1] for entry in entries}).round(4).to_csv(
         out_dir / "metrics.csv")
