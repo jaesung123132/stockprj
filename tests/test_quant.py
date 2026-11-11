@@ -102,8 +102,10 @@ def test_momentum_picks_the_strongest_assets():
 
 
 def test_rsi_extremes():
-    assert (st.rsi(steady_prices([0.001])).iloc[5:] == 100).all().all()
-    assert (st.rsi(steady_prices([-0.001])).iloc[5:] == 0).all().all()
+    always_up = st.rsi(steady_prices([0.001])).iloc[5:]
+    always_down = st.rsi(steady_prices([-0.001])).iloc[5:]
+    assert np.allclose(always_up, 100)
+    assert np.allclose(always_down, 0)
 
 
 def test_mean_reversion_buys_a_dip_in_an_uptrend_and_sells_the_rebound():
