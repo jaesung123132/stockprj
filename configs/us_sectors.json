@@ -1,0 +1,25 @@
+{
+  "name": "us_sectors",
+  "title": "미국 섹터 ETF 9종 (Select Sector SPDR)",
+  "chart_title": "US sector ETFs",
+  "start": "1998-12-01",
+  "cost_bps": 10,
+  "tickers": {
+    "XLB": "소재",
+    "XLE": "에너지",
+    "XLF": "금융",
+    "XLI": "산업재",
+    "XLK": "기술",
+    "XLP": "필수소비재",
+    "XLU": "유틸리티",
+    "XLV": "헬스케어",
+    "XLY": "경기소비재"
+  },
+  "benchmark": {
+    "ticker": "SPY",
+    "label": "S&P 500 지수"
+  },
+  "notes": [
+    "섹터 ETF는 1998년 상장 이후 구성이 그대로라 '지금 살아남은 종목만 고른' 편향이 없습니다. 원화 투자자의 환율 변동은 반영하지 않았습니다."
+  ]
+}
