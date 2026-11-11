@@ -48,7 +48,7 @@ def load_prices(tickers: list[str], start: str, cache_path: Path,
     if cache_path.exists() and not refresh:
         prices = pd.read_csv(cache_path, index_col=0, parse_dates=True)
         if all(t in prices.columns for t in tickers):
-            return prices[tickers]
+            return prices.loc[start:, tickers]
     prices = download_prices(tickers, start)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     prices.round(6).to_csv(cache_path)
@@ -58,7 +58,8 @@ def load_prices(tickers: list[str], start: str, cache_path: Path,
 def clean_prices(prices: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """모든 종목의 데이터가 있는 첫 날부터 잘라내고, 점검 결과를 글로 돌려준다.
 
-    가격이 MAX_GAP 거래일 넘게 연속으로 비어 있는 종목이 있으면 ValueError를 낸다.
+    결과를 믿을 수 없게 만드는 데이터(0 이하의 가격, MAX_GAP 거래일 넘게 이어지는
+    공백)가 있으면 조용히 넘어가지 않고 ValueError를 낸다.
     """
     prices = prices.sort_index()
     prices = prices[~prices.index.duplicated(keep="last")]
@@ -68,13 +69,18 @@ def clean_prices(prices: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     notes = [f"공통 시작일 {first_dates[latest]:%Y-%m-%d} (가장 늦게 시작하는 종목: {latest})"]
 
     for ticker in prices.columns:
+        bad = prices.index[(prices[ticker] <= 0).to_numpy()]
+        if len(bad):
+            raise ValueError(f"{ticker}: 0 이하의 가격이 {len(bad)}일 있습니다 "
+                             f"({bad[0]:%Y-%m-%d} ~ {bad[-1]:%Y-%m-%d}). "
+                             "설정의 start를 그 뒤로 옮기거나 종목을 바꾸세요.")
         missing = prices[ticker].isna()
         if not missing.any():
             continue
         groups = (~missing).cumsum()
         runs = missing.groupby(groups).sum()
         longest = int(runs.max())
-        gap_start = missing.index[(groups == runs.idxmax()) & missing][0]
+        gap_start = missing.index[((groups == runs.idxmax()) & missing).to_numpy()][0]
         if longest > MAX_GAP:
             raise ValueError(f"{ticker}: {gap_start:%Y-%m-%d}부터 {longest}거래일 연속으로 "
                              "가격이 비어 있습니다. 다른 종목이나 데이터로 바꾸세요.")
@@ -83,12 +89,9 @@ def clean_prices(prices: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
                          "가격이 비어 있어 직전 값으로 채움")
     prices = prices.ffill()
 
-    if (prices <= 0).any().any():
-        bad = prices.columns[(prices <= 0).any()].tolist()
-        notes.append(f"0 이하의 가격이 있는 종목: {bad}")
     moves = prices.pct_change().abs()
     for ticker in prices.columns:
-        hits = moves.index[moves[ticker] > SUSPICIOUS_DAILY_MOVE]
+        hits = moves.index[(moves[ticker] > SUSPICIOUS_DAILY_MOVE).to_numpy()]
         if len(hits):
             days = ", ".join(d.strftime("%Y-%m-%d") for d in hits[:5])
             more = " 등" if len(hits) > 5 else ""
