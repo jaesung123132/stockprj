@@ -47,6 +47,12 @@ def main() -> None:
     cost_bps = float(config["cost_bps"])
     capital, unit = float(paper["capital"]), paper["currency"]
 
+    def label(ticker: str) -> str:
+        return f"{names[ticker]}({ticker})"
+
+    def listed(found: set[str]) -> str:
+        return ", ".join(label(ticker) for ticker in tickers if ticker in found) or "없음"
+
     # 가상 매매는 항상 최신 가격을 새로 받는다 (캐시를 쓰지 않는다).
     raw = download_prices(tickers + [index_ticker], config["start"])
     all_prices, notes = clean_prices(raw)
@@ -59,9 +65,9 @@ def main() -> None:
     lines = [
         f"# 가상 매매 현황: {config['title']}",
         "",
-        f"실제 주문은 내지 않습니다. {paper['start']}에 {money(capital, unit)}로 시작해 "
-        "추세추종 규칙(10개월 이동평균)을 그대로 따랐을 때의 가상 계좌입니다.",
+        "실제 주문은 내지 않습니다. 추세추종 규칙(10개월 이동평균)을 그대로 따랐을 때의 가상 계좌입니다.",
         "",
+        f"- 시작 자금: {money(capital, unit)} (설정한 시작일 {paper['start']})",
         f"- 기준일: {last_date:%Y-%m-%d} (장이 열려 있을 때 실행했다면 장중 가격)",
         f"- 체결 가정: 월말 종가로 신호 확정 → 다음 거래일 종가에 체결, 매수·매도 각각 {cost_bps:g}bp",
     ]
@@ -78,10 +84,10 @@ def main() -> None:
         value = capital * result.equity.iloc[-1]
         weights = result.weights.iloc[-1]
 
-        rows = [[label, money(capital * r.equity.iloc[-1], unit), pct(r.equity.iloc[-1] - 1, 2),
+        rows = [[name, money(capital * r.equity.iloc[-1], unit), pct(r.equity.iloc[-1] - 1, 2),
                  pct(drawdown(r.equity).min(), 1)]
-                for label, r in [("추세추종 (가상 계좌)", result), ("동일비중 보유", hold),
-                                 (config["benchmark"]["label"], index)]]
+                for name, r in [("추세추종 (가상 계좌)", result), ("동일비중 보유", hold),
+                                (config["benchmark"]["label"], index)]]
         lines += [f"- 시작일: {first_day:%Y-%m-%d} (이후 {len(result.equity) - 1}거래일 경과)", "",
                   md_table(["", "평가액", "수익률", "최대 낙폭"], rows)]
 
@@ -90,19 +96,20 @@ def main() -> None:
         for ticker in tickers:
             if weights[ticker] > 1e-9:
                 amount = value * weights[ticker]
-                rows.append([f"{ticker} ({names[ticker]})", pct(weights[ticker]), money(amount, unit),
+                rows.append([label(ticker), pct(weights[ticker]), money(amount, unit),
                              f"{amount / prices[ticker].iloc[-1]:,.1f}주"])
         cash = 1 - weights.sum()
         rows.append(["현금", pct(cash), money(value * cash, unit), "-"])
         lines += [md_table(["종목", "비중", "평가액", "수량(약)"], rows), "",
-                  f"따르고 있는 신호: {describe_weights(plan.iloc[-1])}"]
+                  f"따르고 있는 신호: {describe_weights(plan.iloc[-1].rename(index=label))}"]
         if len(result.equity) == 1:
             lines += ["", "아직 매수 전입니다. 다음 거래일 종가에 위 신호대로 처음 매수합니다."]
 
         lines += ["", "## 체결 내역", ""]
         trades = list_trades(result)
         for day, changes in trades:
-            detail = ", ".join(f"{ticker} {before:.0%} → {after:.0%}" for ticker, before, after in changes)
+            detail = ", ".join(f"{label(ticker)} {before:.0%} → {after:.0%}"
+                               for ticker, before, after in changes)
             lines.append(f"- {day:%Y-%m-%d}: {detail}")
         if not trades:
             lines.append("- 아직 없음")
@@ -111,9 +118,9 @@ def main() -> None:
         next_held = set(targets.columns[targets.iloc[-1] > 0])
         lines += ["", "## 이번 달 말 예상 (미확정)", "",
                   "기준일 가격으로 신호를 미리 계산한 것입니다. 실제 신호는 월말 종가로 확정됩니다.", "",
-                  f"- 새로 매수: {', '.join(sorted(next_held - now_held)) or '없음'}",
-                  f"- 매도: {', '.join(sorted(now_held - next_held)) or '없음'}",
-                  f"- 예상 비중: {describe_weights(targets.iloc[-1])}"]
+                  f"- 새로 매수: {listed(next_held - now_held)}",
+                  f"- 매도: {listed(now_held - next_held)}",
+                  f"- 예상 비중: {describe_weights(targets.iloc[-1].rename(index=label))}"]
 
         update_log(out_dir / "log.csv", {
             "data_date": f"{last_date:%Y-%m-%d}",
