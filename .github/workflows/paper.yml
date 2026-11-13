@@ -1,6 +1,7 @@
 name: paper-trading
 
-# 가상 매매 현황(paper/)을 매일 갱신한다. 실제 주문은 내지 않는다.
+# 가상 매매 현황(paper/)을 매일 갱신하고, 새 월말 신호가 나오면 매매 안내 이슈를 만든다.
+# 실제 주문은 내지 않는다.
 # 멈추려면: Actions 탭 -> paper-trading -> 오른쪽 위 "..." -> Disable workflow
 on:
   schedule:
@@ -16,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: paper-trading
@@ -45,6 +47,22 @@ jobs:
             echo "::endgroup::"
           done
           exit $status
+
+      - name: 새 월말 신호가 있으면 매매 안내 이슈 만들기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          for notice in paper/*/notice.md; do
+            [ -f "$notice" ] || continue
+            title="$(head -n 1 "$notice" | sed 's/^# //')"
+            if gh issue list --state all --limit 500 --json title --jq '.[].title' | grep -Fxq "$title"; then
+              echo "이미 안내했습니다: $title"
+            else
+              tail -n +2 "$notice" > "$RUNNER_TEMP/body.md"
+              gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md" --assignee "$OWNER"
+            fi
+          done
 
       - name: 현황을 저장소에 커밋
         if: always()
