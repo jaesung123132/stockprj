@@ -6,6 +6,8 @@ import pytest
 from quant import strategies as st
 from quant.paper import confirmed_targets, list_trades, paper_targets, run_paper
 
+START = 510  # 가상 계좌를 여는 날 (2016년 12월 중순, 월말이 아닌 날)
+
 
 def random_prices(n_days: int = 900, n_assets: int = 6, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -14,6 +16,10 @@ def random_prices(n_days: int = 900, n_assets: int = 6, seed: int = 0) -> pd.Dat
     returns = rng.normal(drift, 0.012, size=(n_days, n_assets))
     return pd.DataFrame(100 * np.exp(np.cumsum(returns, axis=0)), index=dates,
                         columns=[f"A{i}" for i in range(n_assets)])
+
+
+def start_day(prices: pd.DataFrame) -> str:
+    return str(prices.index[START].date())
 
 
 def test_signal_on_the_last_day_is_not_confirmed():
@@ -28,7 +34,7 @@ def test_signal_on_the_last_day_is_not_confirmed():
 def test_entry_uses_the_signal_in_force_on_the_start_day():
     prices = random_prices()
     targets = confirmed_targets(st.trend_following(prices), prices.index[-1])
-    start = prices.index[500]
+    start = prices.index[START]
     previous = targets.loc[targets.index < start]
     plan = paper_targets(targets, start)
     assert plan.index[0] == start
@@ -39,20 +45,20 @@ def test_entry_uses_the_signal_in_force_on_the_start_day():
 
 def test_account_starts_in_cash_and_buys_on_the_next_day():
     prices = random_prices()
-    result, plan = run_paper(prices, st.trend_following(prices), str(prices.index[500].date()), 10)
-    assert result.equity.index[0] == prices.index[500]
+    result, plan = run_paper(prices, st.trend_following(prices), start_day(prices), 10)
+    assert result.equity.index[0] == prices.index[START]
     assert result.equity.iloc[0] == 1.0
     assert result.weights.iloc[0].sum() == 0
+    assert plan.iloc[0].sum() > 0
     assert result.weights.iloc[1].sum() == pytest.approx(plan.iloc[0].sum(), abs=1e-3)
 
 
 def test_new_days_never_change_the_recorded_past():
     prices = random_prices()
-    start = str(prices.index[500].date())
+    full, _ = run_paper(prices, st.trend_following(prices), start_day(prices), 10)
     for cut in (540, 560, 585, 640):
         early = prices.iloc[:cut]
-        short, _ = run_paper(early, st.trend_following(early), start, 10)
-        full, _ = run_paper(prices, st.trend_following(prices), start, 10)
+        short, _ = run_paper(early, st.trend_following(early), start_day(prices), 10)
         pd.testing.assert_series_equal(short.equity, full.equity.iloc[:len(short.equity)],
                                        check_freq=False)
 
@@ -70,9 +76,8 @@ def test_start_on_the_latest_day_is_a_single_cash_row():
 
 def test_trades_are_listed_with_before_and_after_weights():
     prices = random_prices()
-    result, plan = run_paper(prices, st.trend_following(prices), str(prices.index[500].date()), 10)
-    trades = list_trades(result)
-    first_day, changes = trades[0]
-    assert first_day == prices.index[501]
+    result, plan = run_paper(prices, st.trend_following(prices), start_day(prices), 10)
+    first_day, changes = list_trades(result)[0]
+    assert first_day == prices.index[START + 1]
     assert {ticker for ticker, _, _ in changes} == set(plan.columns[plan.iloc[0] > 0])
     assert all(before == 0 and after > 0 for _, before, after in changes)
