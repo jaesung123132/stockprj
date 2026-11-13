@@ -1,4 +1,4 @@
-"""설정 파일(configs/*.json) 하나에 대해 전략 3종과 벤치마크를 백테스트한다.
+"""설정 파일(configs/*.json) 하나에 대해 전략들과 벤치마크를 백테스트한다.
 
 사용법: python run_backtest.py --config configs/us_sectors.json [--refresh]
 결과:   results/<이름>/report.md, equity.png, drawdown.png, metrics.csv
@@ -27,25 +27,32 @@ class Entry:
     prices: pd.DataFrame
     targets: pd.DataFrame
     color: str
+    is_strategy: bool = True
     linestyle: str = "-"
-    linewidth: float = 1.8
+    linewidth: float = 1.6
 
 
 def build_entries(prices: pd.DataFrame, index_prices: pd.DataFrame,
                   benchmark: dict) -> list[Entry]:
-    """전략 3개(앞)와 비교 기준 2개(뒤)."""
+    """전략 6개와 비교 기준 2개. 색은 전략마다 고정이다."""
     top_n = max(1, round(prices.shape[1] / 3))  # 상위 1/3 종목에 집중
     return [
         Entry("trend", "추세추종", "Trend following (10-month SMA)", prices,
               st.trend_following(prices), "#2a78d6"),
         Entry("momentum", "모멘텀", f"Momentum (12-1 month, top {top_n})", prices,
               st.cross_sectional_momentum(prices, top_n=top_n), "#eb6834"),
+        Entry("dual", "듀얼 모멘텀", "Dual momentum (momentum + trend filter)", prices,
+              st.dual_momentum(prices, top_n=top_n), "#eda100"),
         Entry("meanrev", "평균회귀", "Mean reversion (RSI-2 dip buying)", prices,
               st.mean_reversion(prices, max_weight=1 / top_n), "#1baf7a"),
+        Entry("lowvol", "저변동성", f"Low volatility (calmest {top_n})", prices,
+              st.low_volatility(prices, top_n=top_n), "#e87ba4"),
+        Entry("voltarget", "변동성 조절", "Volatility targeting (10%)", prices,
+              st.volatility_targeting(prices), "#008300"),
         Entry("equal", "동일비중 보유", "Equal-weight buy & hold", prices,
-              st.equal_weight_buy_and_hold(prices), "#52514e", "-", 1.2),
+              st.equal_weight_buy_and_hold(prices), "#52514e", False, "-", 1.2),
         Entry("index", benchmark["label"], benchmark["chart_label"], index_prices,
-              st.buy_and_hold(index_prices), "#898781", "--", 1.2),
+              st.buy_and_hold(index_prices), "#898781", False, "--", 1.2),
     ]
 
 
@@ -80,16 +87,17 @@ def main() -> None:
     all_prices, notes = clean_prices(raw)
     prices, index_prices = all_prices[tickers], all_prices[[index_ticker]]
     entries = build_entries(prices, index_prices, config["benchmark"])
+    strategies = [entry for entry in entries if entry.is_strategy]
 
-    # 모든 전략이 신호를 낼 수 있게 된 다음 날부터 평가한다 (모멘텀이 가장 긴 준비 기간을 쓴다).
-    first_signal = entries[1].targets.index[0]
-    eval_start = prices.index[prices.index.get_loc(first_signal) + 1]
+    # 모든 전략이 판단을 내릴 수 있게 된 다음 날부터, 같은 기간으로 평가한다.
+    last_ready = max(entry.targets.index[0] for entry in strategies)
+    eval_start = prices.index[prices.index.get_loc(last_ready) + 1]
 
     base = evaluate(entries, eval_start, cost_bps, delay=1)
-    sensitivity = {(delay, cost): evaluate(entries[:3], eval_start, cost, delay)
+    sensitivity = {(delay, cost): evaluate(strategies, eval_start, cost, delay)
                    for delay in (1, 0) for cost in (0.0, cost_bps, 3 * cost_bps)}
     latest_targets = [(entry.name, f"{entry.targets.index[-1]:%Y-%m-%d}",
-                       rp.describe_weights(entry.targets.iloc[-1])) for entry in entries[:3]]
+                       rp.describe_weights(entry.targets.iloc[-1])) for entry in strategies]
 
     out_dir = Path(args.results_dir) / config["name"]
     out_dir.mkdir(parents=True, exist_ok=True)
