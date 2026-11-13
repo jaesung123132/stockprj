@@ -76,7 +76,7 @@ def _style(ax) -> None:
 
 def plot_equity(entries, results, path, title: str) -> None:
     """자산 곡선 (로그 축: 같은 높이 차이 = 같은 수익률 차이)."""
-    fig, ax = plt.subplots(figsize=(11, 6), facecolor=SURFACE)
+    fig, ax = plt.subplots(figsize=(11, 6.5), facecolor=SURFACE)
     _style(ax)
     low, high = np.inf, 0.0
     for entry in sorted(entries, key=lambda e: -results[e.key][0].iloc[-1]):
@@ -91,7 +91,7 @@ def plot_equity(entries, results, path, title: str) -> None:
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}x"))
     ax.set_title(title, loc="left", color=INK, fontsize=13)
     ax.set_ylabel("Growth of 1 (log scale)", color=MUTED)
-    legend = ax.legend(frameon=False, fontsize=10, loc="upper left")
+    legend = ax.legend(frameon=False, fontsize=9.5, loc="upper left")
     for text in legend.get_texts():
         text.set_color(INK)
     fig.tight_layout()
@@ -101,7 +101,7 @@ def plot_equity(entries, results, path, title: str) -> None:
 
 def plot_drawdowns(entries, results, path, title: str) -> None:
     """전략별 낙폭 (직전 최고점 대비 하락률)을 같은 눈금으로 나란히 그린다."""
-    fig, axes = plt.subplots(len(entries), 1, figsize=(11, 1.6 * len(entries) + 0.9),
+    fig, axes = plt.subplots(len(entries), 1, figsize=(11, 1.5 * len(entries) + 0.9),
                              sharex=True, sharey=True, facecolor=SURFACE)
     for ax, entry in zip(np.atleast_1d(axes), entries):
         _style(ax)
@@ -139,7 +139,7 @@ def build_report(config: dict, entries, base, sensitivity, cost_bps: float,
                  latest_targets: list[tuple[str, str, str]], warnings: list[str]) -> str:
     """보고서 본문(Markdown)을 만든다.
 
-    entries        : 전략 3개 + 벤치마크 2개 (앞의 3개가 전략)
+    entries        : 전략들과 비교 기준들 (is_strategy로 구분)
     base           : {key: (자산 곡선, 지표)} - 기본 가정에서의 결과
     sensitivity    : {(delay, cost_bps): {key: (자산 곡선, 지표)}} - 가정을 바꿔 본 결과
     latest_targets : (전략 이름, 기준일, 목표 비중 설명)
@@ -147,6 +147,7 @@ def build_report(config: dict, entries, base, sensitivity, cost_bps: float,
     index = base[entries[0].key][0].index
     years = (index[-1] - index[0]).days / 365.25
     names = [entry.name for entry in entries]
+    strategies = [entry for entry in entries if entry.is_strategy]
     tickers = ", ".join(f"{ticker}({name})" for ticker, name in config["tickers"].items())
 
     lines = [
@@ -176,7 +177,6 @@ def build_report(config: dict, entries, base, sensitivity, cost_bps: float,
     lines += ["", "## 3. 기간별 성과 (연평균 수익률 / 최대 낙폭)", "",
               md_table(["기간"] + names, _period_rows(entries, base))]
 
-    strategies = entries[:3]
     lines += ["", "## 4. 가정을 바꿨을 때: 연평균 수익률 (샤프 비율)", ""]
     rows = []
     for (delay, cost), result in sensitivity.items():
